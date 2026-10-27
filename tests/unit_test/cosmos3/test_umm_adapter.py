@@ -19,21 +19,21 @@ from xgrammar.testing import _is_grammar_accept_string
 from sglang_omni.admission import QueueFullError
 from sglang_omni.client.client import Client
 from sglang_omni.client.types import GenerateRequest, SamplingParams
-from sglang_omni.models.cosmos3 import stages as cosmos3_stages
 from sglang_omni.models.cosmos3 import umm as cosmos3_umm
-from sglang_omni.models.cosmos3.stages import (
-    DEADLINE_METADATA_KEY,
-    INLINE_MEDIA_LIMIT_BYTES,
-    NativeGenerationScheduler,
-    build_sampling_params,
-    data_url,
-)
 from sglang_omni.models.cosmos3.umm import (
     MAX_PROMPT_CHARS,
     MAX_TEXT_CHARS,
     Cosmos3UMMAdapter,
     interpret_reasoner,
     worst_case_bytes,
+)
+from sglang_omni.native_generation import stage as generation_stage
+from sglang_omni.native_generation.stage import (
+    DEADLINE_METADATA_KEY,
+    INLINE_MEDIA_LIMIT_BYTES,
+    NativeGenerationScheduler,
+    build_sampling_params,
+    data_url,
 )
 from sglang_omni.pipeline.umm import (
     CONTINUATION_METADATA_KEY,
@@ -219,6 +219,7 @@ def test_unstructured_or_malformed_decisions_fail_as_server_errors(response):
         umm.advance(reply(dispatched, response))
     assert generation_error_status_code(rejected.value) == 500
     assert not umm.contexts and not umm.adapter.histories
+    assert not umm.adapter.reason_times.entries
 
 
 def generate_turn(umm, decision=None, params=None, inputs="task"):
@@ -334,7 +335,7 @@ def test_admitted_requests_never_exceed_retained_bytes_through_model_output(
     monkeypatch, spare
 ):
     # Maximal outputs at a small inline limit, so the derived bounds stay small.
-    monkeypatch.setattr(cosmos3_stages, "INLINE_MEDIA_LIMIT_BYTES", 1024)
+    monkeypatch.setattr(generation_stage, "INLINE_MEDIA_LIMIT_BYTES", 1024)
     monkeypatch.setattr(cosmos3_umm, "INLINE_MEDIA_LIMIT_BYTES", 1024)
     monkeypatch.setattr(cosmos3_umm, "WORST_CASE_BYTES", worst_case_bytes())
     probe = controller(max_dispatches=5)
@@ -501,7 +502,7 @@ def test_inline_generation_rejects_foreign_files_without_removing_them(
 def test_inline_byte_bounds_fail_and_release_only_owned_directory(
     tmp_path, monkeypatch, content
 ):
-    monkeypatch.setattr(cosmos3_stages, "INLINE_MEDIA_LIMIT_BYTES", 3)
+    monkeypatch.setattr(generation_stage, "INLINE_MEDIA_LIMIT_BYTES", 3)
     scheduler = inline_scheduler(tmp_path, SavedGenerator(content))
     with pytest.raises(ValueError, match="byte limit"):
         scheduler.generate(StagePayload("r", OmniRequest("cube"), None))
